@@ -14,3 +14,7 @@
 .cxx
 local.properties
 /Brand/
+/app/release/
+/.idea/
+*.jks
+*.keystore

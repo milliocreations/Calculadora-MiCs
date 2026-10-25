@@ -2,10 +2,11 @@ package com.milliocreations.micscalculator
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.*
+import kotlin.time.Duration.Companion.milliseconds
 
 private val PlusJakartaSans = FontFamily(
     Font(R.font.plus_jakarta_sans_regular, FontWeight.Normal),
@@ -112,7 +114,7 @@ fun MiCsCalculator() {
 
     LaunchedEffect(pressedKey) {
         if (pressedKey != null) {
-            delay(150)
+            delay(150.milliseconds)
             pressedKey = null
         }
     }
@@ -265,7 +267,7 @@ fun MiCsCalculator() {
 
     fun chooseAppearance(value: String) {
         appearance = value
-        prefs.edit().putString("appearance", value).commit()
+        prefs.edit { putString("appearance", value) }
     }
 
     fun sendFeedback() {
@@ -279,9 +281,9 @@ fun MiCsCalculator() {
 
     fun rateApp() {
         try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}")))
+            context.startActivity(Intent(Intent.ACTION_VIEW, "market://details?id=${context.packageName}".toUri()))
         } catch (_: ActivityNotFoundException) {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}")))
+            context.startActivity(Intent(Intent.ACTION_VIEW, "https://play.google.com/store/apps/details?id=${context.packageName}".toUri()))
         }
     }
 
@@ -307,7 +309,7 @@ fun MiCsCalculator() {
                                 "C" -> { display = "0"; expression = ""; previousValue = null; operation = null; newNumber = true; inverse = false; expMode = false; expBase = null; selectedOperationKey = null }
                                 "1/x" -> { val n = currentNumber(); expression = "1/(${formatNumber(n)}) ="; display = formatNumber(if (n != 0.0) 1.0 / n else Double.NaN); newNumber = true }
                                 "x²" -> { val n = currentNumber(); expression = "(${formatNumber(n)})² ="; display = formatNumber(n * n); newNumber = true }
-                                "Deg/Rad" -> { degrees = !degrees; prefs.edit().putBoolean("degrees", degrees).commit() }
+                                "Deg/Rad" -> { degrees = !degrees; prefs.edit { putBoolean("degrees", degrees) } }
                                 "Inv" -> inverse = !inverse
                                 "sin", "cos", "tan", "ln", "log", "\u221A", "x!", "π", "e", "%", "±" -> scientific(key)
                                 "EXP" -> pressExp()
@@ -371,8 +373,8 @@ fun MiCsCalculator() {
                                     .background(if (active) palette.selected else Color.Transparent)
                                     .clickable {
                                         when (id) {
-                                            "mode_basic" -> { scientificMode = false; prefs.edit().putBoolean("calculator_scientific_mode", false).commit(); screen = "calculator" }
-                                            "mode_scientific" -> { scientificMode = true; prefs.edit().putBoolean("calculator_scientific_mode", true).commit(); screen = "calculator" }
+                                            "mode_basic" -> { scientificMode = false; prefs.edit { putBoolean("calculator_scientific_mode", false) }; screen = "calculator" }
+                                            "mode_scientific" -> { scientificMode = true; prefs.edit { putBoolean("calculator_scientific_mode", true) }; screen = "calculator" }
                                             else -> screen = id
                                         }
                                         menuOpen = false

@@ -19,12 +19,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -35,7 +33,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.*
@@ -99,7 +96,6 @@ fun MiCsCalculator() {
     var selectedOperationKey by remember { mutableStateOf<String?>(null) }
     var screen by remember { mutableStateOf("calculator") }
     var menuOpen by remember { mutableStateOf(false) }
-    var undoDialog by remember { mutableStateOf(false) }
     var appearance by remember { mutableStateOf(prefs.getString("appearance", "system") ?: "system") }
     // New preference key: an older saved scientific_mode=true must not force scientific mode at startup.
     var scientificMode by remember { mutableStateOf(prefs.getBoolean("calculator_scientific_mode", false)) }
@@ -269,7 +265,7 @@ fun MiCsCalculator() {
 
     fun chooseAppearance(value: String) {
         appearance = value
-        prefs.edit().putString("appearance", value).apply()
+        prefs.edit().putString("appearance", value).commit()
     }
 
     fun sendFeedback() {
@@ -311,7 +307,7 @@ fun MiCsCalculator() {
                                 "C" -> { display = "0"; expression = ""; previousValue = null; operation = null; newNumber = true; inverse = false; expMode = false; expBase = null; selectedOperationKey = null }
                                 "1/x" -> { val n = currentNumber(); expression = "1/(${formatNumber(n)}) ="; display = formatNumber(if (n != 0.0) 1.0 / n else Double.NaN); newNumber = true }
                                 "x²" -> { val n = currentNumber(); expression = "(${formatNumber(n)})² ="; display = formatNumber(n * n); newNumber = true }
-                                "Deg/Rad" -> { degrees = !degrees; prefs.edit().putBoolean("degrees", degrees).apply() }
+                                "Deg/Rad" -> { degrees = !degrees; prefs.edit().putBoolean("degrees", degrees).commit() }
                                 "Inv" -> inverse = !inverse
                                 "sin", "cos", "tan", "ln", "log", "\u221A", "x!", "π", "e", "%", "±" -> scientific(key)
                                 "EXP" -> pressExp()
@@ -375,8 +371,8 @@ fun MiCsCalculator() {
                                     .background(if (active) palette.selected else Color.Transparent)
                                     .clickable {
                                         when (id) {
-                                            "mode_basic" -> { scientificMode = false; prefs.edit().putBoolean("calculator_scientific_mode", false).apply(); screen = "calculator" }
-                                            "mode_scientific" -> { scientificMode = true; prefs.edit().putBoolean("calculator_scientific_mode", true).apply(); screen = "calculator" }
+                                            "mode_basic" -> { scientificMode = false; prefs.edit().putBoolean("calculator_scientific_mode", false).commit(); screen = "calculator" }
+                                            "mode_scientific" -> { scientificMode = true; prefs.edit().putBoolean("calculator_scientific_mode", true).commit(); screen = "calculator" }
                                             else -> screen = id
                                         }
                                         menuOpen = false

@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.content.edit
 import androidx.core.net.toUri
@@ -15,6 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,6 +58,7 @@ private data class CalcSnapshot(
     val inverse: Boolean,
     val expMode: Boolean,
     val expBase: Double?,
+    val parenthesisMode: Boolean,
     val memoryValue: Double,
     val hasMemory: Boolean
 )
@@ -79,6 +83,98 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private class CalculatorExpressionParser(private val source: String) {
+    private var position = 0
+
+    fun parse(): Double {
+        val result = parseSum()
+        skipSpaces()
+        require(position == source.length) { "Expresión incompleta" }
+        return result
+    }
+
+    private fun parseSum(): Double {
+        var value = parseProduct()
+        while (true) {
+            skipSpaces()
+            value = when {
+                take('+') -> value + parseProduct()
+                take('-') || take('−') -> value - parseProduct()
+                else -> return value
+            }
+        }
+    }
+
+    private fun parseProduct(): Double {
+        var value = parsePower()
+        while (true) {
+            skipSpaces()
+            value = when {
+                take('×') || take('*') -> value * parsePower()
+                take('÷') || take('/') -> {
+                    val divisor = parsePower()
+                    if (divisor == 0.0) Double.NaN else value / divisor
+                }
+                source.startsWith("mod", position, ignoreCase = true) -> {
+                    position += 3
+                    val divisor = parsePower()
+                    if (divisor == 0.0) Double.NaN else value % divisor
+                }
+                else -> return value
+            }
+        }
+    }
+
+    private fun parsePower(): Double {
+        val base = parseUnary()
+        skipSpaces()
+        return if (take('^')) base.pow(parsePower()) else base
+    }
+
+    private fun parseUnary(): Double {
+        skipSpaces()
+        return when {
+            take('+') -> parseUnary()
+            take('-') || take('−') -> -parseUnary()
+            take('(') -> {
+                val value = parseSum()
+                skipSpaces()
+                require(take(')')) { "Falta cerrar un paréntesis" }
+                value
+            }
+            else -> parseNumber()
+        }
+    }
+
+    private fun parseNumber(): Double {
+        skipSpaces()
+        val start = position
+        var decimalSeen = false
+        while (position < source.length) {
+            val char = source[position]
+            when {
+                char.isDigit() -> position++
+                (char == ',' || char == '.') && !decimalSeen -> { decimalSeen = true; position++ }
+                else -> break
+            }
+        }
+        require(position > start) { "Falta un número" }
+        return source.substring(start, position).replace(',', '.').toDouble()
+    }
+
+    private fun take(char: Char): Boolean {
+        if (position < source.length && source[position] == char) {
+            position++
+            return true
+        }
+        return false
+    }
+
+    private fun skipSpaces() {
+        while (position < source.length && source[position].isWhitespace()) position++
+    }
+}
+
 @Composable
 fun MiCsCalculator() {
     val context = LocalContext.current
@@ -92,6 +188,8 @@ fun MiCsCalculator() {
     var inverse by remember { mutableStateOf(false) }
     var expMode by remember { mutableStateOf(false) }
     var expBase by remember { mutableStateOf<Double?>(null) }
+    var parenthesisMode by remember { mutableStateOf(false) }
+    var scientificNotation by remember { mutableStateOf(false) }
     var memoryValue by remember { mutableDoubleStateOf(0.0) }
     var hasMemory by remember { mutableStateOf(false) }
     var pressedKey by remember { mutableStateOf<String?>(null) }
@@ -103,6 +201,12 @@ fun MiCsCalculator() {
     var scientificMode by remember { mutableStateOf(prefs.getBoolean("calculator_scientific_mode", false)) }
     val history = remember { mutableStateListOf<String>() }
     val undoStack = remember { mutableStateListOf<CalcSnapshot>() }
+
+    // El botón Atrás del sistema cierra primero el menú y, desde otras pantallas,
+    // vuelve a la calculadora en lugar de dejar la pantalla sin respuesta.
+    BackHandler(enabled = menuOpen || screen != "calculator") {
+        if (menuOpen) menuOpen = false else screen = "calculator"
+    }
 
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
     val dark = when (appearance) {
@@ -124,14 +228,14 @@ fun MiCsCalculator() {
         return if (number % 1.0 == 0.0 && abs(number) < 1.0e15) {
             number.toLong().toString()
         } else {
-            String.format(Locale.US, "%.10f", number).trimEnd('0').trimEnd('.')
+            String.format(Locale.US, "%.10f", number).trimEnd('0').trimEnd('.').replace('.', ',')
         }
     }
 
-    fun currentNumber(): Double = display.toDoubleOrNull() ?: 0.0
+    fun currentNumber(): Double = display.replace(',', '.').toDoubleOrNull() ?: 0.0
 
     fun snapshot() = CalcSnapshot(display, expression, previousValue, operation, newNumber,
-        degrees, inverse, expMode, expBase, memoryValue, hasMemory)
+        degrees, inverse, expMode, expBase, parenthesisMode, memoryValue, hasMemory)
 
     fun rememberUndo() {
         undoStack.add(snapshot())
@@ -145,6 +249,18 @@ fun MiCsCalculator() {
     }
 
     fun calculate() {
+        if (parenthesisMode) {
+            val result = runCatching { CalculatorExpressionParser(expression).parse() }.getOrElse { Double.NaN }
+            expression = "$expression ="
+            display = formatNumber(result)
+            history.add(0, "$expression $display")
+            parenthesisMode = false
+            previousValue = null
+            operation = null
+            newNumber = true
+            selectedOperationKey = null
+            return
+        }
         if (expMode) {
             val exponent = currentNumber()
             val base = expBase ?: 0.0
@@ -165,6 +281,7 @@ fun MiCsCalculator() {
             "-" -> first - second
             "\u00D7" -> first * second
             "\u00F7" -> if (second != 0.0) first / second else Double.NaN
+            "mod" -> if (second != 0.0) first % second else Double.NaN
             "^" -> first.pow(second)
             else -> second
         }
@@ -179,6 +296,18 @@ fun MiCsCalculator() {
     }
 
     fun pressNumber(number: String) {
+        if (parenthesisMode) {
+            if (newNumber || display == "0" || display == "Error" || display == "(") {
+                if (expression.lastOrNull()?.let { it.isDigit() || it == ',' || it == ')' } == true) expression += "×"
+                display = number
+                expression += number
+                newNumber = false
+            } else {
+                display += number
+                expression += number
+            }
+            return
+        }
         if (newNumber || display == "0" || display == "Error") {
             if (operation == null && !expMode) expression = ""
             display = number
@@ -189,14 +318,33 @@ fun MiCsCalculator() {
     }
 
     fun pressDecimal() {
+        if (parenthesisMode) {
+            if (newNumber || display == "0" || display == "(" || display == "Error") {
+                if (expression.lastOrNull()?.let { it.isDigit() || it == ',' || it == ')' } == true) expression += "×"
+                display = "0,"
+                expression += "0,"
+                newNumber = false
+            } else if (!display.contains(',')) {
+                display += ","
+                expression += ","
+            }
+            return
+        }
         if (newNumber || display == "Error") {
             if (operation == null && !expMode) expression = ""
-            display = "0."
+            display = "0,"
             newNumber = false
-        } else if (!display.contains('.')) display += "."
+        } else if (!display.contains(',')) display += ","
     }
 
     fun pressBackspace() {
+        if (parenthesisMode && expression.isNotEmpty()) {
+            expression = expression.dropLast(1)
+            val token = expression.takeLastWhile { it.isDigit() || it == ',' }
+            display = token.ifEmpty { if (expression.endsWith("(")) "(" else "0" }
+            newNumber = token.isEmpty()
+            return
+        }
         if (display == "Error" || display.length <= 1 || (display.length == 2 && display.startsWith("-"))) {
             display = "0"
         } else display = display.dropLast(1)
@@ -204,6 +352,17 @@ fun MiCsCalculator() {
     }
 
     fun pressOperation(op: String) {
+        if (parenthesisMode) {
+            if (expression.lastOrNull()?.let { it.isDigit() || it == ',' || it == ')' } == true || (op == "-" && expression.endsWith("("))) {
+                expression += when (op) { "-" -> "−"; else -> op }
+                display = "0"
+                operation = null
+                previousValue = null
+                selectedOperationKey = when (op) { "-" -> "−"; "^" -> "xʸ"; else -> op }
+                newNumber = true
+            }
+            return
+        }
         if (previousValue != null && !newNumber) calculate()
         previousValue = currentNumber()
         operation = op
@@ -211,6 +370,42 @@ fun MiCsCalculator() {
         expression = "${formatNumber(previousValue ?: 0.0)} $shown"
         selectedOperationKey = when (op) { "-" -> "−"; "^" -> "xʸ"; else -> op }
         newNumber = true
+    }
+
+    fun pressParenthesis(opening: Boolean) {
+        if (opening) {
+            if (!parenthesisMode) {
+                val prefix = when {
+                    operation != null -> "${expression.trimEnd()} "
+                    !newNumber && display != "Error" -> "${display}×"
+                    else -> ""
+                }
+                expression = "$prefix("
+                parenthesisMode = true
+                previousValue = null
+                operation = null
+                selectedOperationKey = null
+            } else {
+                if (expression.lastOrNull()?.let { it.isDigit() || it == ',' || it == ')' } == true) expression += "×"
+                expression += "("
+            }
+            display = "("
+            newNumber = true
+            return
+        }
+
+        if (!parenthesisMode) return
+        val opens = expression.count { it == '(' }
+        val closes = expression.count { it == ')' }
+        val last = expression.lastOrNull()
+        if (opens > closes && last != null && last != '(' && last !in listOf('+', '-', '−', '×', '÷', '^', ',')) {
+            expression += ")"
+            if (expression.count { it == '(' } == expression.count { it == ')' }) {
+                runCatching { CalculatorExpressionParser(expression).parse() }
+                    .onSuccess { display = formatNumber(it) }
+            }
+            newNumber = true
+        }
     }
 
     fun pressExp() {
@@ -233,6 +428,8 @@ fun MiCsCalculator() {
             "log" -> if (wasInverse) 10.0.pow(number) else log10(number)
             "√" -> if (wasInverse) number * number else sqrt(number)
             "x!" -> if (number < 0 || number > 170 || number % 1.0 != 0.0) Double.NaN else { var f = 1.0; for (i in 1..number.toInt()) f *= i; f }
+            "abs" -> abs(number)
+            "10ˣ" -> 10.0.pow(number)
             "π" -> Math.PI
             "e" -> Math.E
             "%" -> number / 100.0
@@ -260,6 +457,7 @@ fun MiCsCalculator() {
             display = s.display; expression = s.expression; previousValue = s.previousValue
             operation = s.operation; newNumber = s.newNumber; degrees = s.degrees
             inverse = s.inverse; expMode = s.expMode; expBase = s.expBase
+            parenthesisMode = s.parenthesisMode
             memoryValue = s.memoryValue; hasMemory = s.hasMemory
             selectedOperationKey = operation?.let { when (it) { "-" -> "−"; "^" -> "xʸ"; else -> it } }
         }
@@ -298,29 +496,37 @@ fun MiCsCalculator() {
                         display = display, expression = expression, palette = palette, large = large,
                         maxHeight = maxHeight, pressedKey = pressedKey, selectedOperationKey = selectedOperationKey,
                         degrees = degrees, inverse = inverse, hasMemory = hasMemory, scientificMode = scientificMode,
+                        scientificNotation = scientificNotation,
                         onHistory = { screen = "history" },
-                        onMenu = { menuOpen = true }, onUndo = { tap("undo") { doUndo() } },
+                        // No llames a tap() aquí: tap guarda una instantánea nueva y
+                        // doUndo terminaría retirando esa misma instantánea sin volver atrás.
+                        onMenu = { menuOpen = true }, onUndo = { pressedKey = "undo"; doUndo() },
                         onKey = { key -> tap(key) {
                             when (key) {
                                 "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" -> pressNumber(key)
                                 "." -> pressDecimal()
                                 "⌫" -> pressBackspace()
-                                "CE" -> { display = "0"; newNumber = true }
-                                "C" -> { display = "0"; expression = ""; previousValue = null; operation = null; newNumber = true; inverse = false; expMode = false; expBase = null; selectedOperationKey = null }
+                                "CE" -> {
+                                    if (parenthesisMode) expression = expression.dropLastWhile { it.isDigit() || it == ',' }
+                                    display = "0"; newNumber = true
+                                }
+                                "C" -> { display = "0"; expression = ""; previousValue = null; operation = null; newNumber = true; inverse = false; expMode = false; expBase = null; parenthesisMode = false; selectedOperationKey = null }
                                 "1/x" -> { val n = currentNumber(); expression = "1/(${formatNumber(n)}) ="; display = formatNumber(if (n != 0.0) 1.0 / n else Double.NaN); newNumber = true }
                                 "x²" -> { val n = currentNumber(); expression = "(${formatNumber(n)})² ="; display = formatNumber(n * n); newNumber = true }
                                 "Deg/Rad" -> { degrees = !degrees; prefs.edit { putBoolean("degrees", degrees) } }
                                 "Inv" -> inverse = !inverse
-                                "sin", "cos", "tan", "ln", "log", "\u221A", "x!", "π", "e", "%", "±" -> scientific(key)
+                                "sin", "cos", "tan", "ln", "log", "\u221A", "x!", "π", "e", "%", "±", "abs", "10ˣ" -> scientific(key)
                                 "EXP" -> pressExp()
+                                "mod" -> pressOperation("mod")
+                                "F-E" -> scientificNotation = !scientificNotation
                                 "xʸ" -> pressOperation("^")
                                 "÷" -> pressOperation("÷")
                                 "×" -> pressOperation("×")
                                 "−" -> pressOperation("-")
                                 "+" -> pressOperation("+")
                                 "=" -> calculate()
-                                "(" -> { expression += if (expression.isNotEmpty()) " (" else "("; display = "0"; newNumber = true }
-                                ")" -> { expression += ")" }
+                                "(" -> pressParenthesis(opening = true)
+                                ")" -> pressParenthesis(opening = false)
                             }
                         } },
                         onMemory = { key -> tap(key) {
@@ -412,38 +618,82 @@ fun MiCsCalculator() {
 private fun CalculatorScreen(
     display: String, expression: String, palette: CalculatorPalette, large: Boolean, maxHeight: androidx.compose.ui.unit.Dp,
     pressedKey: String?, selectedOperationKey: String?, degrees: Boolean, inverse: Boolean, hasMemory: Boolean,
-    scientificMode: Boolean, onHistory: () -> Unit,
+    scientificMode: Boolean, scientificNotation: Boolean, onHistory: () -> Unit,
     onMenu: () -> Unit, onUndo: () -> Unit, onKey: (String) -> Unit, onMemory: (String) -> Unit
 ) {
+    var trigMenuOpen by remember { mutableStateOf(false) }
+    var functionMenuOpen by remember { mutableStateOf(false) }
+    val verticalPadding = if (maxHeight < 420.dp) 2.dp else 6.dp
+    val itemSpacing = if (maxHeight < 420.dp) 2.dp else 4.dp
+    val headerHeight = if (maxHeight < 420.dp) 30.dp else 38.dp
+    val memoryHeight = if (maxHeight < 420.dp) 23.dp else 30.dp
+    val standardWeightedHeight = (maxHeight - verticalPadding * 2 - headerHeight - memoryHeight - itemSpacing * 7).coerceAtLeast(0.dp)
+    val standardDisplayHeight = standardWeightedHeight * (1.55f / 4.95f)
+    val scientificKeyHeight = ((maxHeight - verticalPadding * 2 - headerHeight - memoryHeight - itemSpacing * 11 - 22.dp - 36.dp - standardDisplayHeight) / 7f).coerceAtLeast(0.dp)
     Column(
-        Modifier.fillMaxSize().padding(horizontal = if (large) 12.dp else 5.dp, vertical = if (maxHeight < 420.dp) 2.dp else 6.dp),
-        verticalArrangement = Arrangement.spacedBy(if (maxHeight < 420.dp) 2.dp else 4.dp)
+        Modifier.fillMaxSize().padding(horizontal = if (large) 12.dp else 5.dp, vertical = verticalPadding),
+        verticalArrangement = Arrangement.spacedBy(itemSpacing)
     ) {
-        Row(Modifier.fillMaxWidth().height(if (maxHeight < 420.dp) 30.dp else 38.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(headerHeight), verticalAlignment = Alignment.CenterVertically) {
             Text("☰", Modifier.clickable(onClick = onMenu).padding(horizontal = 10.dp), color = palette.text, fontSize = 23.sp)
             Text(if (scientificMode) "Científica" else "Estándar", color = palette.secondaryText, fontSize = if (large) 16.sp else 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("\u25F7", Modifier.clickable(onClick = onHistory).padding(horizontal = 8.dp), color = palette.secondaryText, fontSize = 21.sp)
             Text("↶", Modifier.clickable(onClick = onUndo).padding(horizontal = 12.dp), color = palette.secondaryText, fontSize = 25.sp)
         }
-        Column(Modifier.fillMaxWidth().weight(1.55f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.End) {
+        val displayModifier = if (scientificMode) Modifier.fillMaxWidth().height(standardDisplayHeight) else Modifier.fillMaxWidth().weight(1.55f)
+        Column(displayModifier, verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.End) {
             Text(expression, Modifier.fillMaxWidth(), fontSize = if (large) 24.sp else 18.sp, fontWeight = FontWeight.Normal, color = Color(0xFF969696), textAlign = TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(display, Modifier.fillMaxWidth(), fontSize = when { large -> 66.sp; maxHeight < 420.dp -> 46.sp; else -> 58.sp }, fontWeight = FontWeight.Bold, color = palette.text, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val shownDisplay = if (scientificNotation) {
+                display.replace(',', '.').toDoubleOrNull()?.let { String.format(Locale.US, "%.6E", it).replace('.', ',') } ?: display
+            } else display
+            Text(shownDisplay, Modifier.fillMaxWidth(), fontSize = when { large -> 66.sp; maxHeight < 420.dp -> 46.sp; else -> 58.sp }, fontWeight = FontWeight.Bold, color = palette.text, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Row(Modifier.fillMaxWidth().height(if (maxHeight < 420.dp) 23.dp else 30.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+        if (scientificMode) {
+            Row(Modifier.fillMaxWidth().height(22.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (degrees) "DEG" else "RAD", Modifier.clickable { onKey("Deg/Rad") }.padding(horizontal = 10.dp), color = palette.secondaryText, fontSize = 14.sp)
+                Text("F-E", Modifier.clickable { onKey("F-E") }.padding(horizontal = 10.dp), color = if (scientificNotation) palette.accent else palette.secondaryText, fontSize = 14.sp)
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(memoryHeight), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             listOf("MC", "MR", "M+", "M−", "MS").forEach { key ->
                 Text(key, Modifier.weight(1f).wrapContentWidth(Alignment.CenterHorizontally).clickable { onMemory(key) }, color = if (key == "MR" && hasMemory) palette.accent else palette.secondaryText, fontSize = if (large) 17.sp else 14.sp, fontWeight = FontWeight.Normal)
             }
         }
+        if (scientificMode) {
+            Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    Text("◿  Trigonometría  ⌄", Modifier.clickable {
+                        trigMenuOpen = true
+                        functionMenuOpen = false
+                    }.padding(horizontal = 8.dp, vertical = 6.dp), color = palette.text, fontSize = 14.sp)
+                    DropdownMenu(expanded = trigMenuOpen, onDismissRequest = { trigMenuOpen = false }) {
+                        listOf("sin", "cos", "tan").forEach { key ->
+                            DropdownMenuItem(text = { Text(key) }, onClick = { trigMenuOpen = false; onKey(key) })
+                        }
+                    }
+                }
+                Box {
+                    Text("ƒ  Función  ⌄", Modifier.clickable {
+                        functionMenuOpen = true
+                        trigMenuOpen = false
+                    }.padding(horizontal = 8.dp, vertical = 6.dp), color = palette.text, fontSize = 14.sp)
+                    DropdownMenu(expanded = functionMenuOpen, onDismissRequest = { functionMenuOpen = false }) {
+                        listOf("log", "ln", "abs", "10ˣ", "x!", "√", "EXP", "mod").forEach { key ->
+                            val label = when (key) { "x!" -> "n!"; "EXP" -> "exp"; "√" -> "√x"; else -> key }
+                            DropdownMenuItem(text = { Text(label) }, onClick = { functionMenuOpen = false; onKey(key) })
+                        }
+                    }
+                }
+            }
+        }
         val rows = if (scientificMode) listOf(
-            listOf("Deg/Rad", "Inv", "EXP", "xʸ"),
-            listOf("sin", "cos", "tan", "ln"),
-            listOf("log", "x!", "π", "e"),
-            listOf("%", "CE", "C", "⌫"),
-            listOf("1/x", "x²", "√", "÷"),
-            listOf("7", "8", "9", "×"),
-            listOf("4", "5", "6", "−"),
-            listOf("1", "2", "3", "+"),
-            listOf("±", "0", ".", "=")
+            listOf("Inv", "π", "e", "C", "⌫"),
+            listOf("x²", "1/x", "abs", "EXP", "mod"),
+            listOf("√", "(", ")", "x!", "÷"),
+            listOf("xʸ", "7", "8", "9", "×"),
+            listOf("10ˣ", "4", "5", "6", "−"),
+            listOf("log", "1", "2", "3", "+"),
+            listOf("ln", "±", "0", ".", "=")
         ) else listOf(
             listOf("%", "CE", "C", "⌫"),
             listOf("7", "8", "9", "÷"),
@@ -452,17 +702,23 @@ private fun CalculatorScreen(
             listOf("±", "0", ".", "=")
         )
         rows.forEach { row ->
-            Row(Modifier.fillMaxWidth().weight(0.68f), horizontalArrangement = Arrangement.spacedBy(if (large) 4.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            val rowModifier = if (scientificMode) Modifier.height(scientificKeyHeight) else Modifier.weight(0.68f)
+            Row(Modifier.fillMaxWidth().then(rowModifier), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 row.forEach { key ->
                     val shown = when (key) {
-                        "Deg/Rad" -> if (degrees) "Deg" else "Rad"
-                        "√" -> "²√x".takeIf { inverse } ?: "√x"
+                        "Inv" -> "2nd"
+                        "EXP" -> "exp"
+                        "x!" -> "n!"
+                        "√" -> "²√x"
+                        "abs" -> "|x|"
+                        "." -> ","
                         else -> key
                     }
                     val isNumber = key in listOf("0","1","2","3","4","5","6","7","8","9",".")
-                    val isOperator = key in listOf("÷","×","−","+")
+                    val isDigit = key in listOf("0","1","2","3","4","5","6","7","8","9")
+                    val isOperator = key in listOf("÷","×","−","+","mod")
                     val isScientific = !isNumber && !isOperator && key != "=" && key !in listOf("C", "CE", "⌫")
-                    val active = pressedKey == key || (key == "Deg/Rad" && !degrees) || (key == "Inv" && inverse) || selectedOperationKey == key
+                    val active = pressedKey == key || (key == "Inv" && inverse) || selectedOperationKey == key
                     val keyColor = when {
                         key == "=" -> palette.accent
                         active -> palette.selected
@@ -481,7 +737,16 @@ private fun CalculatorScreen(
                         contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
                     ) {
-                        Text(shown, fontSize = when { isNumber -> if (large) 34.sp else 30.sp; isOperator || key == "=" -> if (large) 30.sp else 27.sp; else -> if (large) 24.sp else 21.sp }, fontWeight = FontWeight.Normal, maxLines = 1, textAlign = TextAlign.Center, overflow = TextOverflow.Clip)
+                        val keyFontSize = if (scientificMode) {
+                            when {
+                                isDigit -> if (large) 32.sp else 28.sp
+                                key in listOf("Inv", "x²", "√", "xʸ", "10ˣ", "log", "ln", "1/x", "abs", "EXP", "mod") -> if (large) 22.sp else 19.sp
+                                else -> if (large) 23.sp else 20.sp
+                            }
+                        } else {
+                            when { isNumber -> if (large) 34.sp else 30.sp; isOperator || key == "=" -> if (large) 30.sp else 27.sp; else -> if (large) 24.sp else 21.sp }
+                        }
+                        Text(shown, fontSize = keyFontSize, fontWeight = FontWeight.Normal, maxLines = 1, textAlign = TextAlign.Center, overflow = TextOverflow.Clip)
                     }
                 }
             }
@@ -514,10 +779,11 @@ private fun SettingsScreen(
     onRate: () -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     var themeMenuOpen by remember { mutableStateOf(false) }
     var customizeExpanded by remember { mutableStateOf(false) }
     var aboutExpanded by remember { mutableStateOf(false) }
-    val privacyPolicyText = "PENDIENTE: sustituir por la declaración de privacidad de Millio Creations."
+    val privacyPolicyUrl = "https://sites.google.com/view/mics-calculator-legal/pol%C3%ADtica-de-privacidad"
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -531,9 +797,10 @@ private fun SettingsScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("Tema de la aplicación", color = palette.text, fontSize = 16.sp)
-                    Text("Seleccionar el tema de la aplicación\nque se va a mostrar", color = palette.secondaryText, fontSize = 14.sp)
+                    Text("Seleccionar el tema de la aplicación", color = palette.secondaryText, fontSize = 14.sp, lineHeight = 18.sp)
+                    Text("que se va a mostrar", color = palette.secondaryText, fontSize = 14.sp, lineHeight = 18.sp)
                 }
-                Text(if (themeMenuOpen) "⌃" else "⌄", color = palette.text, fontSize = 22.sp)
+                    FlatChevron(expanded = themeMenuOpen, color = palette.text)
             }
             if (themeMenuOpen) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
@@ -551,7 +818,7 @@ private fun SettingsScreen(
                             onClick = { onAppearance(value) },
                             colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = palette.accent)
                         )
-                        Text(label, color = palette.text, fontSize = 15.sp)
+                    Text(label, color = palette.text, fontSize = 16.sp, lineHeight = 20.sp)
                     }
                 }
             }
@@ -563,9 +830,11 @@ private fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Personalizar calculadora", Modifier.weight(1f), color = palette.text, fontSize = 16.sp)
-                Text(if (customizeExpanded) "⌃" else "⌄", color = palette.text, fontSize = 22.sp)
+                FlatChevron(expanded = customizeExpanded, color = palette.text)
             }
-            if (customizeExpanded) Spacer(Modifier.height(8.dp))
+            if (customizeExpanded) {
+                Text("En construcción", Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), color = palette.secondaryText, fontSize = 14.sp)
+            }
         }
 
         Text("Acerca de", color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
@@ -578,13 +847,16 @@ private fun SettingsScreen(
                     Text("MiCs Calculator", color = palette.text, fontSize = 16.sp)
                     Text("Versión $version", color = palette.secondaryText, fontSize = 14.sp)
                 }
-                Text(if (aboutExpanded) "⌃" else "⌄", color = palette.text, fontSize = 22.sp)
+                FlatChevron(expanded = aboutExpanded, color = palette.text)
             }
             if (aboutExpanded) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
                 Text(
-                    "Declaración de privacidad de Millio Creations\n\n$privacyPolicyText",
-                    Modifier.fillMaxWidth().padding(16.dp), color = palette.secondaryText, fontSize = 14.sp
+                    "Declaración de privacidad de Millio Creations",
+                    Modifier.fillMaxWidth().clickable {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, privacyPolicyUrl.toUri()))
+                    }.padding(16.dp),
+                    color = palette.accent, fontSize = 14.sp
                 )
             }
         }
@@ -620,8 +892,26 @@ private fun InfoScreen(palette: CalculatorPalette, title: String, heading: Strin
 @Composable
 private fun Header(palette: CalculatorPalette, title: String, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("‹", Modifier.clickable(onClick = onBack).padding(horizontal = 4.dp), color = palette.text, fontSize = 32.sp)
+        androidx.compose.material3.IconButton(onClick = onBack) {
+            Text("‹", color = palette.text, fontSize = 32.sp)
+        }
         Text(title, color = palette.text, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun FlatChevron(expanded: Boolean, color: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(width = 18.dp, height = 10.dp)) {
+        val stroke = 1.6.dp.toPx()
+        val middleX = size.width / 2f
+        val edgeX = 1.dp.toPx()
+        val highY = size.height * 0.30f
+        val lowY = size.height * 0.70f
+        val leftY = if (expanded) lowY else highY
+        val rightY = leftY
+        val middleY = if (expanded) highY else lowY
+        drawLine(color, androidx.compose.ui.geometry.Offset(edgeX, leftY), androidx.compose.ui.geometry.Offset(middleX, middleY), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawLine(color, androidx.compose.ui.geometry.Offset(middleX, middleY), androidx.compose.ui.geometry.Offset(size.width - edgeX, rightY), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
     }
 }
 

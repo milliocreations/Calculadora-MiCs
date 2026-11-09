@@ -18,9 +18,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
@@ -493,7 +496,7 @@ fun MiCsCalculator() {
 
                 when (screen) {
                     "calculator" -> CalculatorScreen(
-                        display = display, expression = expression, palette = palette, large = large,
+                        display = display, expression = expression, palette = palette, dark = dark, large = large,
                         maxHeight = maxHeight, pressedKey = pressedKey, selectedOperationKey = selectedOperationKey,
                         degrees = degrees, inverse = inverse, hasMemory = hasMemory, scientificMode = scientificMode,
                         scientificNotation = scientificNotation,
@@ -616,19 +619,35 @@ fun MiCsCalculator() {
 
 @Composable
 private fun CalculatorScreen(
-    display: String, expression: String, palette: CalculatorPalette, large: Boolean, maxHeight: androidx.compose.ui.unit.Dp,
+    display: String, expression: String, palette: CalculatorPalette, dark: Boolean, large: Boolean, maxHeight: androidx.compose.ui.unit.Dp,
     pressedKey: String?, selectedOperationKey: String?, degrees: Boolean, inverse: Boolean, hasMemory: Boolean,
     scientificMode: Boolean, scientificNotation: Boolean, onHistory: () -> Unit,
     onMenu: () -> Unit, onUndo: () -> Unit, onKey: (String) -> Unit, onMemory: (String) -> Unit
 ) {
     var trigMenuOpen by remember { mutableStateOf(false) }
     var functionMenuOpen by remember { mutableStateOf(false) }
+    val dropdownColorScheme = if (dark) {
+        val translucentDarkSurface = Color(0xEB06132F)
+        darkColorScheme(
+            surface = translucentDarkSurface,
+            surfaceContainer = translucentDarkSurface,
+            onSurface = palette.text
+        )
+    } else {
+        val translucentLightSurface = Color(0xCCEDF3FF)
+        lightColorScheme(
+            surface = translucentLightSurface,
+            surfaceContainer = translucentLightSurface,
+            onSurface = palette.text
+        )
+    }
     val verticalPadding = if (maxHeight < 420.dp) 2.dp else 6.dp
     val itemSpacing = if (maxHeight < 420.dp) 2.dp else 4.dp
     val headerHeight = if (maxHeight < 420.dp) 30.dp else 38.dp
     val memoryHeight = if (maxHeight < 420.dp) 23.dp else 30.dp
     val standardWeightedHeight = (maxHeight - verticalPadding * 2 - headerHeight - memoryHeight - itemSpacing * 7).coerceAtLeast(0.dp)
     val standardDisplayHeight = standardWeightedHeight * (1.55f / 4.95f)
+    val standardKeyHeight = ((standardWeightedHeight * (3.4f / 4.95f) - itemSpacing) / 6f).coerceAtLeast(0.dp)
     val scientificKeyHeight = ((maxHeight - verticalPadding * 2 - headerHeight - memoryHeight - itemSpacing * 11 - 22.dp - 36.dp - standardDisplayHeight) / 7f).coerceAtLeast(0.dp)
     Column(
         Modifier.fillMaxSize().padding(horizontal = if (large) 12.dp else 5.dp, vertical = verticalPadding),
@@ -666,9 +685,11 @@ private fun CalculatorScreen(
                         trigMenuOpen = true
                         functionMenuOpen = false
                     }.padding(horizontal = 8.dp, vertical = 6.dp), color = palette.text, fontSize = 14.sp)
-                    DropdownMenu(expanded = trigMenuOpen, onDismissRequest = { trigMenuOpen = false }) {
-                        listOf("sin", "cos", "tan").forEach { key ->
-                            DropdownMenuItem(text = { Text(key) }, onClick = { trigMenuOpen = false; onKey(key) })
+                    MaterialTheme(colorScheme = dropdownColorScheme) {
+                        DropdownMenu(expanded = trigMenuOpen, onDismissRequest = { trigMenuOpen = false }) {
+                            listOf("sin", "cos", "tan").forEach { key ->
+                                DropdownMenuItem(text = { Text(key, color = palette.text, fontFamily = PlusJakartaSans) }, onClick = { trigMenuOpen = false; onKey(key) })
+                            }
                         }
                     }
                 }
@@ -677,10 +698,12 @@ private fun CalculatorScreen(
                         functionMenuOpen = true
                         trigMenuOpen = false
                     }.padding(horizontal = 8.dp, vertical = 6.dp), color = palette.text, fontSize = 14.sp)
-                    DropdownMenu(expanded = functionMenuOpen, onDismissRequest = { functionMenuOpen = false }) {
-                        listOf("log", "ln", "abs", "10ˣ", "x!", "√", "EXP", "mod").forEach { key ->
-                            val label = when (key) { "x!" -> "n!"; "EXP" -> "exp"; "√" -> "√x"; else -> key }
-                            DropdownMenuItem(text = { Text(label) }, onClick = { functionMenuOpen = false; onKey(key) })
+                    MaterialTheme(colorScheme = dropdownColorScheme) {
+                        DropdownMenu(expanded = functionMenuOpen, onDismissRequest = { functionMenuOpen = false }) {
+                            listOf("log", "ln", "abs", "10ˣ", "x!", "√", "EXP", "mod").forEach { key ->
+                                val label = when (key) { "x!" -> "n!"; "EXP" -> "exp"; "√" -> "√x"; else -> key }
+                                DropdownMenuItem(text = { Text(label, color = palette.text, fontFamily = PlusJakartaSans) }, onClick = { functionMenuOpen = false; onKey(key) })
+                            }
                         }
                     }
                 }
@@ -696,20 +719,21 @@ private fun CalculatorScreen(
             listOf("ln", "±", "0", ".", "=")
         ) else listOf(
             listOf("%", "CE", "C", "⌫"),
-            listOf("7", "8", "9", "÷"),
-            listOf("4", "5", "6", "×"),
-            listOf("1", "2", "3", "−"),
+            listOf("1/x", "x²", "√", "÷"),
+            listOf("7", "8", "9", "×"),
+            listOf("4", "5", "6", "−"),
+            listOf("1", "2", "3", "+"),
             listOf("±", "0", ".", "=")
         )
         rows.forEach { row ->
-            val rowModifier = if (scientificMode) Modifier.height(scientificKeyHeight) else Modifier.weight(0.68f)
+            val rowModifier = if (scientificMode) Modifier.height(scientificKeyHeight) else Modifier.height(standardKeyHeight)
             Row(Modifier.fillMaxWidth().then(rowModifier), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 row.forEach { key ->
                     val shown = when (key) {
                         "Inv" -> "2nd"
                         "EXP" -> "exp"
                         "x!" -> "n!"
-                        "√" -> "²√x"
+                        "√" -> if (scientificMode) "²√x" else "√x"
                         "abs" -> "|x|"
                         "." -> ","
                         else -> key
@@ -723,17 +747,22 @@ private fun CalculatorScreen(
                         key == "=" -> palette.accent
                         active -> palette.selected
                         key in listOf("C", "CE", "⌫") -> palette.operator
+                        key == "±" -> palette.number
                         isNumber -> palette.number
                         isOperator -> palette.operator
                         isScientific -> palette.scientific
                         else -> palette.operator
                     }
-                    val keyText = if (key == "=" && pressedKey == "=") Color.White else palette.text
+                    val keyText = if (key == "=" && pressedKey == "=") {
+                        if (dark) Color(0xFF020C24) else Color.White
+                    } else palette.text
                     Button(
                         onClick = { onKey(key) },
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         shape = RoundedCornerShape(6.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = keyColor, contentColor = if (key == "=") Color.White else keyText),
+                        colors = ButtonDefaults.buttonColors(containerColor = keyColor, contentColor = if (key == "=") {
+                            if (dark) Color(0xFF020C24) else Color.White
+                        } else keyText),
                         contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
                     ) {
@@ -805,8 +834,8 @@ private fun SettingsScreen(
             if (themeMenuOpen) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
                 listOf(
-                    "light" to "Claro",
-                    "dark" to "Oscuro",
+                    "light" to "MiCs Light",
+                    "dark" to "MiCs Dark",
                     "system" to "Usar la configuración del sistema"
                 ).forEach { (value, label) ->
                     Row(
@@ -921,16 +950,16 @@ private fun appVersion(context: android.content.Context): String = try {
 } catch (_: Exception) { "1.0" }
 
 private fun createPalette(accent: Color, dark: Boolean): CalculatorPalette {
-    val bg = if (dark) Color(0xFF17181B) else Color(0xFFF7F3EB)
-    val surface = if (dark) Color(0xFF24262B) else Color(0xFFFFFEFC)
-    val text = if (dark) Color(0xFFF4F5F7) else Color(0xFF202124)
-    val secondary = if (dark) Color(0xFFB9BDC6) else Color(0xFF66635F)
-    val number = if (dark) mix(accent, bg, 0.84f) else Color(0xFFFFFEFC)
-    val operator = if (dark) mix(accent, bg, 0.59f) else Color(0xFFF5F2EC)
-    val scientific = if (dark) mix(accent, bg, 0.43f) else Color(0xFFF2EEE7)
-    val active = if (dark) mix(accent, bg, 0.34f) else Color(0xFFFFE2C2)
-    val finalAccent = if (dark) mix(accent, Color.White, 0.18f) else accent
-    return CalculatorPalette(bg, surface, text, secondary, number, operator, scientific, finalAccent, active, if (dark) Color(0xFF3A3D44) else Color(0xFFE1DDD5))
+    val bg = if (dark) Color(0xFF020C24) else Color(0xFFEDF3FF)
+    val surface = if (dark) Color(0xFF06132F) else Color(0xFFF9F9F9)
+    val text = if (dark) Color(0xFFF9F9F9) else Color(0xFF17181A)
+    val secondary = if (dark) Color(0xFFC6D0E5) else Color(0xFF555B66)
+    val number = if (dark) Color(0xFF03194D) else Color(0xFFF9F9F9)
+    val operator = if (dark) Color(0xFF06132F) else Color(0xFFDBE8FF)
+    val scientific = operator
+    val active = if (dark) Color(0xFF0A245C) else Color(0xFFC7D9FB)
+    val finalAccent = accent
+    return CalculatorPalette(bg, surface, text, secondary, number, operator, scientific, finalAccent, active, if (dark) Color(0xFF18305D) else Color(0xFFD4E0F5))
 }
 
 private fun mix(foreground: Color, background: Color, amount: Float): Color = Color(

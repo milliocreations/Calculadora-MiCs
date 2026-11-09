@@ -852,7 +852,7 @@ private fun SettingsScreen(
             if (aboutExpanded) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
                 Text(
-                    "Declaración de privacidad de Millio Creations",
+                    "Política de privacidad",
                     Modifier.fillMaxWidth().clickable {
                         context.startActivity(Intent(Intent.ACTION_VIEW, privacyPolicyUrl.toUri()))
                     }.padding(16.dp),

@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MiCs Calculator"
+rootProject.name = "Calculadora MiCs"
 include(":app")

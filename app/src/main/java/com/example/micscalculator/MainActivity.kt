@@ -474,8 +474,8 @@ fun MiCsCalculator() {
     fun sendFeedback() {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Comentarios sobre MiCs Calculator")
-            putExtra(Intent.EXTRA_TEXT, "Comentarios sobre MiCs Calculator:\n\n")
+            putExtra(Intent.EXTRA_SUBJECT, "Comentarios sobre Calculadora MiCs")
+            putExtra(Intent.EXTRA_TEXT, "Comentarios sobre Calculadora MiCs:\n\n")
         }
         context.startActivity(Intent.createChooser(intent, "Enviar comentarios"))
     }
@@ -550,9 +550,9 @@ fun MiCsCalculator() {
                         onBack = { screen = "calculator" }
                     )
                     "history" -> HistoryScreen(palette, history, { screen = "calculator" }, { history.clear() })
-                    "about" -> InfoScreen(palette, "Acerca de MiCs", "MiCs Calculator", appVersion(context), "Desarrollada por Millio Creations.", { screen = "calculator" })
-                    "feedback" -> InfoScreen(palette, "Enviar comentarios", "Ayúdanos a mejorar MiCs Calculator", "", "Puedes compartir una sugerencia o informar de un error mediante una aplicación compatible instalada en tu dispositivo.", { screen = "calculator" }, actionLabel = "Compartir comentarios", onAction = ::sendFeedback)
-                    "rate" -> InfoScreen(palette, "Calificar aplicación", "¿Te gusta MiCs Calculator?", "", "Tu valoración en Google Play ayuda a que otras personas conozcan la aplicación.", { screen = "calculator" }, actionLabel = "Abrir Google Play", onAction = ::rateApp)
+                    "about" -> InfoScreen(palette, "Acerca de Calculadora MiCs", "Calculadora MiCs", appVersion(context), "Desarrollada por Millio Creations.", { screen = "calculator" })
+                    "feedback" -> InfoScreen(palette, "Enviar comentarios", "Ayúdanos a mejorar Calculadora MiCs", "", "Puedes compartir una sugerencia o informar de un error mediante una aplicación compatible instalada en tu dispositivo.", { screen = "calculator" }, actionLabel = "Compartir comentarios", onAction = ::sendFeedback)
+                    "rate" -> InfoScreen(palette, "Calificar aplicación", "¿Te gusta Calculadora MiCs?", "", "Tu valoración en Google Play ayuda a que otras personas conozcan la aplicación.", { screen = "calculator" }, actionLabel = "Abrir Google Play", onAction = ::rateApp)
                 }
 
                 if (menuOpen) {
@@ -564,7 +564,7 @@ fun MiCsCalculator() {
                         verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Text("☰", modifier = Modifier.fillMaxWidth().clickable { menuOpen = false }.padding(8.dp), color = palette.text, fontSize = 24.sp)
-                        Text("MiCs Calculator", modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 8.dp), color = palette.secondaryText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Calculadora MiCs", modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 8.dp), color = palette.secondaryText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         Text("Calculadora", modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 2.dp), color = palette.secondaryText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         val items = listOf(
                             Triple("mode_basic", "▦", if (scientificMode) "Cambiar a estándar" else "Estándar"),
@@ -873,7 +873,7 @@ private fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("MiCs Calculator", color = palette.text, fontSize = 16.sp)
+                    Text("Calculadora MiCs", color = palette.text, fontSize = 16.sp)
                     Text("Versión $version", color = palette.secondaryText, fontSize = 14.sp)
                 }
                 FlatChevron(expanded = aboutExpanded, color = palette.text)
